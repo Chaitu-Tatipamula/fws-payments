@@ -10,12 +10,11 @@ import {BaseTestHelper} from "./helpers/BaseTestHelper.sol";
 import {console} from "forge-std/console.sol";
 contract AccountLockupSettlementTest is Test, BaseTestHelper {
     PaymentsTestHelpers helper;
-            Payments payments;
-
+    Payments payments;
 
     // Define constants
-    uint256 internal constant INITIAL_BALANCE = 1000 ether;
     uint256 internal constant DEPOSIT_AMOUNT = 100 ether;
+    uint256 internal constant MAX_LOCKUP_PERIOD = 100;
 
     function setUp() public {
         helper = new PaymentsTestHelpers();
@@ -26,7 +25,8 @@ contract AccountLockupSettlementTest is Test, BaseTestHelper {
             USER1,
             OPERATOR,
             10 ether, // rateAllowance
-            100 ether // lockupAllowance
+            100 ether, // lockupAllowance
+            MAX_LOCKUP_PERIOD // maxLockupPeriod
         );
     }
 
@@ -222,7 +222,8 @@ contract AccountLockupSettlementTest is Test, BaseTestHelper {
             USER1,
             OPERATOR,
             0, // no rate allowance needed
-            DEPOSIT_AMOUNT * 3 // much higher lockup allowance
+            DEPOSIT_AMOUNT * 3, // much higher lockup allowance
+            MAX_LOCKUP_PERIOD // max lockup period
         );
 
         // Try to set up a rail with lockup > funds which should fail
@@ -235,9 +236,10 @@ contract AccountLockupSettlementTest is Test, BaseTestHelper {
             0
         );
 
-      
         // This should fail because lockupFixed > available funds
-        vm.expectRevert("invariant failure: insufficient funds to cover lockup after function execution");
+        vm.expectRevert(
+            "invariant failure: insufficient funds to cover lockup after function execution"
+        );
         payments.modifyRailLockup(railId, 10, DEPOSIT_AMOUNT * 2);
         vm.stopPrank();
     }

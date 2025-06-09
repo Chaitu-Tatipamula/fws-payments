@@ -2,6 +2,7 @@
 
 The FWS Payments contract enables ERC20 token payment flows through "rails" - automated payment channels between clients and recipients. The contract supports continuous payments, one-time transfers, and payment arbitration.
 
+- [Deployment Info](#deployment-info)
 - [Key Concepts](#key-concepts)
 - [Core Functions](#core-functions)
   - [Account Management](#account-management)
@@ -11,6 +12,10 @@ The FWS Payments contract enables ERC20 token payment flows through "rails" - au
   - [Arbitration](#arbitration)
 - [Worked Example](#worked-example)
 - [Emergency Scenarios](#emergency-scenarios)
+
+## Deployment Info
+- On calibration net at `0x0E690D3e60B0576D01352AB03b258115eb84A047`
+- Coming soon to mainnet...
 
 ## Key Concepts
 
@@ -24,7 +29,7 @@ The FWS Payments contract enables ERC20 token payment flows through "rails" - au
 Tracks the funds, lockup, obligations, etc. associated with a single “owner” (where the owner is a smart contract or a wallet). Accounts can be both *clients* and *SPs* but we’ll often talk about them as if they were separate types.
 
 - **Client —** An account that *pays* an SP (also referred to as the *payer*)
-- **SP** — An account managed by a service provider to receive payment from a client (also referred to as the *payee).*
+- **SP** — An account managed by a service provider to receive payment from a client (also referred to as the *payee*).
 
 ### Rail
 

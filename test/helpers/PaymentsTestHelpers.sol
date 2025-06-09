@@ -12,6 +12,7 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
     // Common constants
     uint256 public constant INITIAL_BALANCE = 1000 ether;
     uint256 public constant DEPOSIT_AMOUNT = 100 ether;
+    uint256 internal constant MAX_LOCKUP_PERIOD = 100;
 
     Payments public payments;
     IERC20 public testToken;
@@ -35,6 +36,9 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
         users[3] = OPERATOR;
         users[4] = OPERATOR2;
         users[5] = ARBITER;
+
+        vm.deal(USER1, INITIAL_BALANCE);
+        vm.deal(USER2, INITIAL_BALANCE);
 
         testToken = setupTestToken(
             "Test Token",
@@ -83,12 +87,26 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
     function getAccountData(
         address user
     ) public view returns (Payments.Account memory) {
+        return _getAccountData(user, false);
+    }
+
+    function getNativeAccountData(
+        address user
+    ) public view returns (Payments.Account memory) {
+        return _getAccountData(user, true);
+    }
+
+    function _getAccountData(
+        address user,
+        bool useNativeToken
+    ) private view returns (Payments.Account memory) {
+        address token = useNativeToken ? address(0) : address(testToken);
         (
             uint256 funds,
             uint256 lockupCurrent,
             uint256 lockupRate,
             uint256 lockupLastSettledAt
-        ) = payments.accounts(address(testToken), user);
+        ) = payments.accounts(token, user);
 
         return
             Payments.Account({
@@ -100,35 +118,68 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
     }
 
     function makeDeposit(address from, address to, uint256 amount) public {
+        _performDeposit(from, to, amount, false);
+    }
+
+    function makeNativeDeposit(
+        address from,
+        address to,
+        uint256 amount
+    ) public {
+        _performDeposit(from, to, amount, true);
+    }
+
+    function _performDeposit(
+        address from,
+        address to,
+        uint256 amount,
+        bool useNativeToken
+    ) public {
         // Capture pre-deposit balances
-        uint256 fromERC20BalanceBefore = testToken.balanceOf(from);
-        uint256 paymentsERC20BalanceBefore = testToken.balanceOf(
-            address(payments)
+        uint256 fromBalanceBefore = _balanceOf(from, useNativeToken);
+        uint256 paymentsBalanceBefore = _balanceOf(
+            address(payments),
+            useNativeToken
         );
-        Payments.Account memory toAccountBefore = getAccountData(to);
+        Payments.Account memory toAccountBefore = _getAccountData(
+            to,
+            useNativeToken
+        );
 
         // Make the deposit
         vm.startPrank(from);
-        payments.deposit(address(testToken), to, amount);
+
+        uint256 value = 0;
+        address token = address(testToken);
+        if (useNativeToken) {
+            value = amount;
+            token = address(0);
+        }
+
+        payments.deposit{value: value}(token, to, amount);
         vm.stopPrank();
 
-        // Verify ERC-20 token balances
-        uint256 fromERC20BalanceAfter = testToken.balanceOf(from);
-        uint256 paymentsERC20BalanceAfter = testToken.balanceOf(
-            address(payments)
+        // Verify token balances
+        uint256 fromBalanceAfter = _balanceOf(from, useNativeToken);
+        uint256 paymentsBalanceAfter = _balanceOf(
+            address(payments),
+            useNativeToken
         );
-        Payments.Account memory toAccountAfter = getAccountData(to);
+        Payments.Account memory toAccountAfter = _getAccountData(
+            to,
+            useNativeToken
+        );
 
         // Verify balances
         assertEq(
-            fromERC20BalanceAfter,
-            fromERC20BalanceBefore - amount,
-            "Sender's ERC20 balance not reduced correctly"
+            fromBalanceAfter,
+            fromBalanceBefore - amount,
+            "Sender's balance not reduced correctly"
         );
         assertEq(
-            paymentsERC20BalanceAfter,
-            paymentsERC20BalanceBefore + amount,
-            "Payments contract ERC20 balance not increased correctly"
+            paymentsBalanceAfter,
+            paymentsBalanceBefore + amount,
+            "Payments contract balance not increased correctly"
         );
         assertEq(
             toAccountAfter.funds,
@@ -143,7 +194,18 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             from,
             from, // recipient is the same as sender
             amount,
-            true // use the standard withdraw function
+            true, // use the standard withdraw function
+            false // use ERC20 token
+        );
+    }
+
+    function makeNativeWithdrawal(address from, uint256 amount) public {
+        _performWithdrawal(
+            from,
+            from, // recipient is the same as sender
+            amount,
+            true, // use the standard withdraw function
+            true // use native token
         );
     }
 
@@ -163,37 +225,70 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             from,
             to,
             amount,
-            false // use the withdrawTo function
+            false, // use the withdrawTo function
+            false // use erc20 token
         );
+    }
+
+    function makeNativeWithdrawalTo(
+        address from,
+        address to,
+        uint256 amount
+    ) public {
+        _performWithdrawal(
+            from,
+            to,
+            amount,
+            false, // use the withdrawTo function
+            true // use native token
+        );
+    }
+
+    function _balanceOf(
+        address addr,
+        bool useNativeToken
+    ) private returns (uint256) {
+        if (useNativeToken) {
+            return addr.balance;
+        } else {
+            return testToken.balanceOf(addr);
+        }
     }
 
     function _performWithdrawal(
         address from,
         address to,
         uint256 amount,
-        bool isStandardWithdrawal
+        bool isStandardWithdrawal,
+        bool useNativeToken
     ) private {
+        address token = useNativeToken ? address(0) : address(testToken);
+
         // Capture pre-withdrawal balances
-        uint256 fromAccountBalanceBefore = getAccountData(from).funds;
-        uint256 recipientERC20BalanceBefore = testToken.balanceOf(to);
-        uint256 paymentsERC20BalanceBefore = testToken.balanceOf(
-            address(payments)
+        uint256 fromAccountBalanceBefore = _getAccountData(from, useNativeToken)
+            .funds;
+        uint256 recipientBalanceBefore = _balanceOf(to, useNativeToken);
+        uint256 paymentsBalanceBefore = _balanceOf(
+            address(payments),
+            useNativeToken
         );
 
         // Make the withdrawal
         vm.startPrank(from);
         if (isStandardWithdrawal) {
-            payments.withdraw(address(testToken), amount);
+            payments.withdraw(token, amount);
         } else {
-            payments.withdrawTo(address(testToken), to, amount);
+            payments.withdrawTo(token, to, amount);
         }
         vm.stopPrank();
 
         // Verify balances
-        uint256 fromAccountBalanceAfter = getAccountData(from).funds;
-        uint256 recipientERC20BalanceAfter = testToken.balanceOf(to);
-        uint256 paymentsERC20BalanceAfter = testToken.balanceOf(
-            address(payments)
+        uint256 fromAccountBalanceAfter = _getAccountData(from, useNativeToken)
+            .funds;
+        uint256 recipientBalanceAfter = _balanceOf(to, useNativeToken);
+        uint256 paymentsBalanceAfter = _balanceOf(
+            address(payments),
+            useNativeToken
         );
 
         // Assert balances changed correctly
@@ -203,14 +298,14 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             "Sender's account balance not decreased correctly"
         );
         assertEq(
-            recipientERC20BalanceAfter,
-            recipientERC20BalanceBefore + amount,
-            "Recipient's ERC20 balance not increased correctly"
+            recipientBalanceAfter,
+            recipientBalanceBefore + amount,
+            "Recipient's balance not increased correctly"
         );
         assertEq(
-            paymentsERC20BalanceAfter,
-            paymentsERC20BalanceBefore - amount,
-            "Payments contract ERC20 balance not decreased correctly"
+            paymentsBalanceAfter,
+            paymentsBalanceBefore - amount,
+            "Payments contract balance not decreased correctly"
         );
     }
 
@@ -261,7 +356,7 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             uint256 rateAllowance,
             uint256 lockupAllowance,
             ,
-
+            ,
         ) = payments.operatorApprovals(address(testToken), from, railOperator);
 
         // Ensure operator has sufficient allowances before creating the rail
@@ -280,7 +375,8 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
                     : rateAllowance,
                 requiredLockupAllowance > lockupAllowance
                     ? requiredLockupAllowance
-                    : lockupAllowance
+                    : lockupAllowance,
+                MAX_LOCKUP_PERIOD
             );
             vm.stopPrank();
         }
@@ -288,7 +384,7 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
         railId = createRail(from, to, railOperator, arbiter);
 
         // Get operator usage before modifications
-        (, , , uint256 rateUsageBefore, uint256 lockupUsageBefore) = payments
+        (, , , uint256 rateUsageBefore, uint256 lockupUsageBefore,) = payments
             .operatorApprovals(address(testToken), from, railOperator);
 
         // Get rail parameters before modifications to accurately calculate expected usage changes
@@ -322,7 +418,7 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
         assertEq(rail.arbiter, arbiter, "Rail arbiter address mismatch");
 
         // Get operator usage after modifications
-        (, , , uint256 rateUsageAfter, uint256 lockupUsageAfter) = payments
+        (, , , uint256 rateUsageAfter, uint256 lockupUsageAfter, ) = payments
             .operatorApprovals(address(testToken), from, railOperator);
 
         // Calculate expected change in rate usage
@@ -381,10 +477,11 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
         address from,
         address operator,
         uint256 rateAllowance,
-        uint256 lockupAllowance
+        uint256 lockupAllowance,
+        uint256 maxLockupPeriod
     ) public {
         // Get initial usage values for verification
-        (, , , uint256 initialRateUsage, uint256 initialLockupUsage) = payments
+        (, , , uint256 initialRateUsage, uint256 initialLockupUsage,) = payments
             .operatorApprovals(address(testToken), from, operator);
 
         // Set approval
@@ -394,7 +491,8 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             operator,
             true,
             rateAllowance,
-            lockupAllowance
+            lockupAllowance,
+            maxLockupPeriod
         );
         vm.stopPrank();
 
@@ -406,7 +504,8 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             rateAllowance, // rateAllowance
             lockupAllowance, // lockupAllowance
             initialRateUsage, // rateUsage shouldn't change
-            initialLockupUsage // lockupUsage shouldn't change
+            initialLockupUsage, // lockupUsage shouldn't change
+            maxLockupPeriod // maxLockupPeriod
         );
     }
 
@@ -420,7 +519,8 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             uint256 rateAllowance,
             uint256 lockupAllowance,
             uint256 rateUsage,
-            uint256 lockupUsage
+            uint256 lockupUsage,
+            uint256 maxLockupPeriod
         ) = payments.operatorApprovals(address(testToken), from, operator);
 
         // Revoke approval
@@ -430,7 +530,8 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             operator,
             false,
             rateAllowance,
-            lockupAllowance
+            lockupAllowance,
+            maxLockupPeriod
         );
         vm.stopPrank();
 
@@ -442,7 +543,8 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             rateAllowance, // rateAllowance should remain the same
             lockupAllowance, // lockupAllowance should remain the same
             rateUsage, // rateUsage shouldn't change
-            lockupUsage // lockupUsage shouldn't change
+            lockupUsage, // lockupUsage shouldn't change,
+            maxLockupPeriod // maxLockupPeriod should remain the same
         );
     }
 
@@ -483,14 +585,16 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
         uint256 expectedRateAllowance,
         uint256 expectedLockupAllowance,
         uint256 expectedRateUsage,
-        uint256 expectedLockupUsage
+        uint256 expectedLockupUsage,
+        uint256 expectedMaxLockupPeriod
     ) public view {
         (
             bool isApproved,
             uint256 rateAllowance,
             uint256 lockupAllowance,
             uint256 rateUsage,
-            uint256 lockupUsage
+            uint256 lockupUsage,
+            uint256 maxLockupPeriod
         ) = payments.operatorApprovals(address(testToken), client, operator);
 
         assertEq(
@@ -510,6 +614,11 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
         );
         assertEq(rateUsage, expectedRateUsage, "Rate usage mismatch");
         assertEq(lockupUsage, expectedLockupUsage, "Lockup usage mismatch");
+        assertEq(
+            maxLockupPeriod,
+            expectedMaxLockupPeriod,
+            "Max lockup period mismatch"
+        );
     }
 
     // Get current operator allowance and usage
@@ -524,7 +633,8 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             uint256 rateAllowance,
             uint256 lockupAllowance,
             uint256 rateUsage,
-            uint256 lockupUsage
+            uint256 lockupUsage,
+            uint256 maxLockupPeriod
         )
     {
         return payments.operatorApprovals(address(testToken), client, operator);
@@ -553,6 +663,7 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             uint256 lockupAllowanceBefore,
             ,
             uint256 lockupUsageBefore
+            ,
         ) = payments.operatorApprovals(
                 address(testToken),
                 railClient,
@@ -639,6 +750,7 @@ contract PaymentsTestHelpers is Test, BaseTestHelper {
             uint256 lockupAllowanceAfter,
             ,
             uint256 lockupUsageAfter
+            ,
         ) = payments.operatorApprovals(
                 address(testToken),
                 railClient,

@@ -11,40 +11,29 @@ contract AccessControlTest is Test, BaseTestHelper {
     Payments payments;
     PaymentsTestHelpers helper;
 
-    
-
-    uint256 constant INITIAL_BALANCE = 1000 ether;
     uint256 constant DEPOSIT_AMOUNT = 100 ether;
+    uint256 constant MAX_LOCKUP_PERIOD = 100;
     uint256 railId;
 
     function setUp() public {
         helper = new PaymentsTestHelpers();
-       helper.setupStandardTestEnvironment();
-       payments = helper.payments();
+        helper.setupStandardTestEnvironment();
+        payments = helper.payments();
 
-       
         // Setup operator approval
         helper.setupOperatorApproval(
             USER1,
             OPERATOR,
             10 ether, // rateAllowance
-            100 ether // lockupAllowance
+            100 ether, // lockupAllowance
+            MAX_LOCKUP_PERIOD // maxLockupPeriod
         );
 
         // Deposit funds for client
-        helper.makeDeposit(
-            USER1,
-            USER1,
-            DEPOSIT_AMOUNT
-        );
+        helper.makeDeposit(USER1, USER1, DEPOSIT_AMOUNT);
 
         // Create a rail for testing
-        railId = helper.createRail(
-            USER1,
-            USER2,
-            OPERATOR,
-            address(0)
-        );
+        railId = helper.createRail(USER1, USER2, OPERATOR, address(0));
 
         // Set up rail parameters
         vm.startPrank(OPERATOR);
